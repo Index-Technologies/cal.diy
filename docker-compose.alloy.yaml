@@ -1,0 +1,111 @@
+## Alloy dev-env stack for Cal.diy
+##
+## Uses host networking so the Alloy proxy at http://localhost:8080
+## can reach the Next.js dev server on the frontend port.
+##
+## Services:
+##  - postgres: ephemeral Postgres 18 instance bound to localhost:5450 (matches
+##    the default DATABASE_URL in .env.example).
+##  - web:      Node 20 container that bootstraps .env files, installs deps,
+##    runs Prisma migrations + app-store seed, and starts `next dev` on :3000.
+
+services:
+  postgres:
+    image: postgres:18
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: calendso
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ""
+      POSTGRES_HOST_AUTH_METHOD: trust
+      PGPORT: "5450"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -p 5450 -d calendso"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  web:
+    image: node:20-bookworm
+    working_dir: /workspace
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/workspace
+      - web-node-modules:/workspace/node_modules
+      - web-yarn-cache:/usr/local/share/.cache/yarn
+    environment:
+      NODE_ENV: development
+      # Disable Next.js telemetry inside the sandbox.
+      NEXT_TELEMETRY_DISABLED: "1"
+      CALCOM_TELEMETRY_DISABLED: "1"
+      # Yarn 4 lives at .yarn/releases/yarn-4.12.0.cjs (per .yarnrc.yml).
+      # Enable corepack so the `yarn` shim picks up the repo-pinned version.
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    command:
+      - bash
+      - -lc
+      - |
+        set -eu
+
+        # ---------- Bootstrap .env / .env.appStore ----------
+        if [ ! -f .env ]; then
+          echo "[alloy] Creating .env from .env.example"
+          cp .env.example .env
+
+          # Generate stable-ish secrets the first time the stack boots.
+          NEXTAUTH_SECRET_VAL=$$(openssl rand -base64 32 | tr -d '\n')
+          CALENDSO_ENCRYPTION_KEY_VAL=$$(openssl rand -base64 24 | tr -d '\n')
+
+          # Replace blank NEXTAUTH_SECRET= and CALENDSO_ENCRYPTION_KEY= entries.
+          sed -i "s|^NEXTAUTH_SECRET=.*|NEXTAUTH_SECRET='$${NEXTAUTH_SECRET_VAL}'|" .env
+          sed -i "s|^CALENDSO_ENCRYPTION_KEY=.*|CALENDSO_ENCRYPTION_KEY='$${CALENDSO_ENCRYPTION_KEY_VAL}'|" .env
+        fi
+
+        if [ ! -f .env.appStore ]; then
+          echo "[alloy] Creating .env.appStore from .env.appStore.example"
+          cp .env.appStore.example .env.appStore
+        fi
+
+        # The Prisma package reads its env from packages/prisma/.env via the
+        # symlink that ships with the repo, but the symlink can break on some
+        # filesystems. Make sure the file is reachable.
+        if [ -L packages/prisma/.env ] && [ ! -e packages/prisma/.env ]; then
+          rm -f packages/prisma/.env
+          cp .env packages/prisma/.env
+        fi
+
+        # ---------- Activate Yarn 4 (pinned in .yarnrc.yml) ----------
+        corepack enable >/dev/null 2>&1 || true
+        corepack prepare yarn@4.12.0 --activate >/dev/null 2>&1 || true
+
+        # ---------- Install workspace dependencies ----------
+        if [ ! -d node_modules/.bin ] || [ ! -f node_modules/.alloy-installed ]; then
+          echo "[alloy] Running yarn install (this is slow on first boot)"
+          yarn install --inline-builds
+          touch node_modules/.alloy-installed
+        else
+          echo "[alloy] node_modules already populated, skipping install"
+        fi
+
+        # ---------- Apply migrations + seed app store ----------
+        echo "[alloy] Deploying Prisma migrations"
+        yarn workspace @calcom/prisma prisma migrate deploy
+
+        echo "[alloy] Seeding app store metadata"
+        yarn workspace @calcom/prisma seed-app-store || true
+
+        # ---------- Start the Next.js dev server ----------
+        echo "[alloy] Starting @calcom/web dev server on :3000"
+        exec yarn workspace @calcom/web dev
+
+volumes:
+  postgres-data:
+  web-node-modules:
+  web-yarn-cache:
