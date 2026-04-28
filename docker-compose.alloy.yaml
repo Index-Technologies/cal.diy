@@ -1,7 +1,7 @@
 # Alloy dev-env compose for the Cal.diy monorepo.
 #
 # Uses host networking (no published `ports`) so the Next.js dev server is
-# reachable on localhost:3000 from the Alloy sandbox without any port mapping.
+# reachable on localhost:8080 from the Alloy sandbox without any port mapping.
 # Postgres listens on the default 5432 on the host network. The bind-mounted
 # repo lets edits in the workspace pick up Next.js HMR. node_modules and the
 # Next build cache live in named volumes so installs persist between restarts
@@ -53,12 +53,13 @@ services:
       # --- DB ---
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/calendso
       DATABASE_DIRECT_URL: postgresql://postgres:postgres@localhost:5432/calendso
-      # --- Web app URLs ---
-      NEXTAUTH_URL: http://localhost:3000
-      NEXT_PUBLIC_WEBAPP_URL: http://localhost:3000
-      NEXT_PUBLIC_WEBSITE_URL: http://localhost:3000
-      NEXT_PUBLIC_EMBED_LIB_URL: http://localhost:3000/embed/embed.js
-      ALLOWED_HOSTNAMES: '"localhost:3000","127.0.0.1:3000"'
+      # --- Web app URLs (Alloy expects the dev server on localhost:8080) ---
+      PORT: "8080"
+      NEXTAUTH_URL: http://localhost:8080
+      NEXT_PUBLIC_WEBAPP_URL: http://localhost:8080
+      NEXT_PUBLIC_WEBSITE_URL: http://localhost:8080
+      NEXT_PUBLIC_EMBED_LIB_URL: http://localhost:8080/embed/embed.js
+      ALLOWED_HOSTNAMES: '"localhost:8080","127.0.0.1:8080"'
       RESERVED_SUBDOMAINS: '"app","auth","docs","api","www","admin"'
       # --- Required secrets (dev-only placeholders, do not use in prod) ---
       NEXTAUTH_SECRET: alloy-dev-nextauth-secret-please-rotate
@@ -102,5 +103,11 @@ services:
         echo "[alloy] Seeding the database (idempotent)"
         yarn workspace @calcom/prisma db-seed || echo "[alloy] db-seed failed - continuing with empty DB"
 
-        echo "[alloy] Starting Next.js dev server on http://localhost:3000"
-        exec yarn workspace @calcom/web dev
+        echo "[alloy] Copying app-store static assets"
+        yarn workspace @calcom/web copy-app-store-static || true
+
+        echo "[alloy] Starting Next.js dev server on http://localhost:8080"
+        # The default `yarn @calcom/web dev` runs `next dev --turbopack`, which
+        # would bind to :3000. Invoke next directly with --port so the server
+        # listens on the port Alloy expects.
+        exec yarn workspace @calcom/web next dev --turbopack --port 8080
