@@ -1,0 +1,4 @@
+{
+  "dockerComposePath": "docker-compose.alloy.yaml",
+  "homeUrl": "/auth/login"
+}
