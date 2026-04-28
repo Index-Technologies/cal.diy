@@ -1,10 +1,10 @@
 # Compose file used by the Alloy dev-env sandbox to boot Cal.diy.
 #
-# Both services use `network_mode: host` so the Next.js app at :3000 and
+# Both services use `network_mode: host` so the Next.js app at :8080 and
 # Postgres at :5450 are reachable on the sandbox host without publishing
-# ports. The DATABASE_URL the rest of the codebase expects
-# (`postgresql://postgres:@localhost:5450/calendso`) works unchanged because
-# of host networking.
+# ports. The Next.js dev server is bound to PORT=8080 (the Alloy
+# convention) and Postgres listens on the port the rest of the
+# codebase expects (postgresql://postgres:@localhost:5450/calendso).
 services:
   postgres:
     image: postgres:18
@@ -37,11 +37,13 @@ services:
       # Database
       DATABASE_URL: "postgresql://postgres:@localhost:5450/calendso"
       DATABASE_DIRECT_URL: "postgresql://postgres:@localhost:5450/calendso"
+      # Bind the Next.js dev server to the Alloy frontend port.
+      PORT: "8080"
       # App URLs (host networking means localhost works on both sides)
-      NEXT_PUBLIC_WEBAPP_URL: "http://localhost:3000"
-      NEXT_PUBLIC_WEBSITE_URL: "http://localhost:3000"
-      NEXTAUTH_URL: "http://localhost:3000"
-      ALLOWED_HOSTNAMES: '"localhost:3000"'
+      NEXT_PUBLIC_WEBAPP_URL: "http://localhost:8080"
+      NEXT_PUBLIC_WEBSITE_URL: "http://localhost:8080"
+      NEXTAUTH_URL: "http://localhost:8080"
+      ALLOWED_HOSTNAMES: '"localhost:8080"'
       # Disable telemetry by default for the sandbox.
       CALCOM_TELEMETRY_DISABLED: "1"
       NEXT_TELEMETRY_DISABLED: "1"

@@ -1,4 +1,4 @@
 {
   "dockerComposePath": "docker-compose.alloy.yaml",
-  "homeUrl": "http://localhost:3000/auth/login"
+  "homeUrl": "http://localhost:8080/auth/login"
 }

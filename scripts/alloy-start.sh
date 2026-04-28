@@ -4,7 +4,7 @@
 #
 # It prepares the .env files the predev env-check script expects, installs
 # workspace dependencies, applies Prisma migrations, seeds the dev users, and
-# finally hands off to `yarn dev` so the Next.js app starts on :3000.
+# finally launches the Next.js dev server on the Alloy frontend port (:8080).
 set -euo pipefail
 
 cd /workspace
@@ -55,4 +55,11 @@ yarn workspace @calcom/prisma db-deploy
 yarn workspace @calcom/prisma db-seed || echo "[alloy-start] db-seed reported errors, continuing"
 
 # --- start dev server -----------------------------------------------------
-exec yarn dev
+# Invoke Next.js directly so we can pin --port to the Alloy frontend port.
+# Turbo's task graph doesn't whitelist PORT in turbo.json#globalEnv, so the
+# value would be stripped when going through `yarn dev` -> turbo. Run the
+# app-store static copy step turbo would normally orchestrate first, then
+# hand the rest of the lifecycle off to `next dev` ourselves.
+yarn turbo run copy-app-store-static --filter=@calcom/web
+cd /workspace/apps/web
+exec yarn next dev --turbopack --port "${PORT:-8080}"
