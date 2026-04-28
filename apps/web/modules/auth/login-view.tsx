@@ -162,22 +162,7 @@ export default function Login({
     // we're logged in! let's do a hard refresh to the desired url
     else if (!res.error) {
       setLastUsed("credentials");
-      // Strip the WEBAPP_URL prefix when present so router.push uses an in-app
-      // navigation. Pushing the absolute URL forces window.location.assign(),
-      // which breaks setups where the user reaches the app through a reverse
-      // proxy (e.g. https://*.alloy.dev) — the browser would try to leave the
-      // proxy and load WEBAPP_URL directly.
-      let target = callbackUrl;
-      try {
-        const callbackOrigin = new URL(callbackUrl).origin;
-        const webappOrigin = new URL(WEBAPP_URL).origin;
-        if (callbackOrigin === webappOrigin) {
-          target = callbackUrl.substring(webappOrigin.length) || "/";
-        }
-      } catch {
-        // callbackUrl wasn't an absolute URL; push it as-is.
-      }
-      router.push(target);
+      router.push(callbackUrl);
     } else if (res.error === ErrorCode.SecondFactorRequired) setTwoFactorRequired(true);
     else if (res.error === ErrorCode.IncorrectBackupCode) setErrorMessage(t("incorrect_backup_code"));
     else if (res.error === ErrorCode.MissingBackupCodes) setErrorMessage(t("missing_backup_codes"));
