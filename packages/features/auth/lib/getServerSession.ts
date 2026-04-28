@@ -42,9 +42,20 @@ export async function getServerSession(options: {
 }) {
   const { req, authOptions: { secret } = {} } = options;
 
+  // Mirror the same logic as `defaultCookies()` so we look up the cookie under
+  // the correct name. When the WEBAPP is served over HTTPS or when the
+  // `NEXTAUTH_FORCE_SECURE_COOKIES` opt-in is set (e.g. dev server fronted by
+  // an HTTPS proxy that embeds the app in a cross-site iframe), NextAuth writes
+  // the session cookie with the `__Secure-` prefix. Without this flag,
+  // `getToken` would look for the unprefixed name and miss the cookie.
+  const useSecureCookies =
+    process.env.NEXTAUTH_URL?.startsWith("https://") === true ||
+    process.env.NEXTAUTH_FORCE_SECURE_COOKIES === "true";
+
   const token = await getToken({
     req,
     secret,
+    secureCookie: useSecureCookies,
   });
 
   log.debug("Getting server session", safeStringify({ token }));

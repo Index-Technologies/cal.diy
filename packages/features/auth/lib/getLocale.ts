@@ -27,8 +27,15 @@ export const getLocale = async (
         headers: ReadonlyHeaders;
       }
 ): Promise<string> => {
+  // See note in `getServerSession.ts` — keep this in sync with `defaultCookies()`
+  // so we look up the session cookie under the correct (`__Secure-` prefixed) name.
+  const useSecureCookies =
+    process.env.NEXTAUTH_URL?.startsWith("https://") === true ||
+    process.env.NEXTAUTH_FORCE_SECURE_COOKIES === "true";
+
   const token = await getToken({
     req: req as GetTokenParams["req"],
+    secureCookie: useSecureCookies,
   });
 
   const tokenLocale = token?.["locale"];
