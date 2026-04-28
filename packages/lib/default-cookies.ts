@@ -13,18 +13,24 @@ import type { CookieOption, CookiesOptions } from "next-auth";
  */
 
 const NEXTAUTH_COOKIE_DOMAIN = process.env.NEXTAUTH_COOKIE_DOMAIN || "";
+// Opt-in: force `SameSite=None; Secure` cookies even when WEBAPP_URL is http://.
+// Needed when the dev server is fronted by an HTTPS reverse proxy that embeds the
+// app in a cross-site iframe (e.g. the Alloy preview), because `SameSite=Lax`
+// cookies are not sent on subresource requests issued from cross-site iframes.
+const NEXTAUTH_FORCE_SECURE_COOKIES = process.env.NEXTAUTH_FORCE_SECURE_COOKIES === "true";
 
 export function defaultCookies(useSecureCookies: boolean): CookiesOptions {
-  const cookiePrefix = useSecureCookies ? "__Secure-" : "";
+  const secure = useSecureCookies || NEXTAUTH_FORCE_SECURE_COOKIES;
+  const cookiePrefix = secure ? "__Secure-" : "";
 
   const defaultOptions: CookieOption["options"] = {
     domain: NEXTAUTH_COOKIE_DOMAIN || undefined,
     // To enable cookies on widgets,
     // https://stackoverflow.com/questions/45094712/iframe-not-reading-cookies-in-chrome
     // But we need to set it as `lax` in development
-    sameSite: useSecureCookies ? "none" : "lax",
+    sameSite: secure ? "none" : "lax",
     path: "/",
-    secure: useSecureCookies,
+    secure,
   };
   return {
     sessionToken: {
@@ -63,9 +69,9 @@ export function defaultCookies(useSecureCookies: boolean): CookiesOptions {
       name: `${cookiePrefix}next-auth.nonce`,
       options: {
         httpOnly: true,
-        sameSite: "lax",
+        sameSite: secure ? "none" : "lax",
         path: "/",
-        secure: useSecureCookies,
+        secure,
       },
     },
   };
