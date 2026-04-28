@@ -51,6 +51,11 @@ services:
       NEXTAUTH_URL: "http://localhost:8080"
       NEXTAUTH_SECRET: "alloy_dev_only_nextauth_secret_change_me_xxxxx"
       NEXTAUTH_COOKIE_DOMAIN: ""
+      # The Alloy preview serves the app over HTTPS inside a cross-site iframe.
+      # Browsers won't send `SameSite=Lax` cookies on subresource requests from
+      # cross-site iframes, so we force `SameSite=None; Secure` for all NextAuth
+      # cookies. Safe here because the proxy terminates HTTPS.
+      NEXTAUTH_FORCE_SECURE_COOKIES: "true"
 
       # --- Cal.com required encryption key (must be 24 bytes base64) ---
       CALENDSO_ENCRYPTION_KEY: "ZGV2X2FsbG95X2VuY3J5cHRpb25fZGV2X3Nl"
