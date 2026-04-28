@@ -1,0 +1,106 @@
+# Alloy dev-env compose for the Cal.diy monorepo.
+#
+# Uses host networking (no published `ports`) so the Next.js dev server is
+# reachable on localhost:3000 from the Alloy sandbox without any port mapping.
+# Postgres listens on the default 5432 on the host network. The bind-mounted
+# repo lets edits in the workspace pick up Next.js HMR. node_modules and the
+# Next build cache live in named volumes so installs persist between restarts
+# and don't conflict with anything on the host.
+
+volumes:
+  cal-diy-postgres-data:
+  cal-diy-node-modules:
+  cal-diy-yarn-cache:
+  cal-diy-next-cache:
+  cal-diy-prisma-generated:
+
+services:
+  postgres:
+    image: postgres:18
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: calendso
+      POSTGRES_HOST_AUTH_METHOD: trust
+      PGPORT: "5432"
+    volumes:
+      - cal-diy-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d calendso -h 127.0.0.1 -p 5432"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  web:
+    image: node:20-bookworm
+    working_dir: /workspace
+    network_mode: host
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/workspace
+      # Keep node_modules and build/cache directories in named volumes so the
+      # huge install isn't repeated on every restart and doesn't shadow the
+      # host's working tree.
+      - cal-diy-node-modules:/workspace/node_modules
+      - cal-diy-yarn-cache:/workspace/.yarn/cache
+      - cal-diy-next-cache:/workspace/apps/web/.next
+      - cal-diy-prisma-generated:/workspace/packages/prisma/generated
+    environment:
+      # --- DB ---
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/calendso
+      DATABASE_DIRECT_URL: postgresql://postgres:postgres@localhost:5432/calendso
+      # --- Web app URLs ---
+      NEXTAUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_WEBAPP_URL: http://localhost:3000
+      NEXT_PUBLIC_WEBSITE_URL: http://localhost:3000
+      NEXT_PUBLIC_EMBED_LIB_URL: http://localhost:3000/embed/embed.js
+      ALLOWED_HOSTNAMES: '"localhost:3000","127.0.0.1:3000"'
+      RESERVED_SUBDOMAINS: '"app","auth","docs","api","www","admin"'
+      # --- Required secrets (dev-only placeholders, do not use in prod) ---
+      NEXTAUTH_SECRET: alloy-dev-nextauth-secret-please-rotate
+      CALENDSO_ENCRYPTION_KEY: alloy-dev-encryption-key-32bytes!!
+      CRON_API_KEY: alloy-dev-cron-api-key
+      # --- Email (no SMTP in sandbox; point at unreachable localhost MailHog) ---
+      EMAIL_FROM: notifications@cal.diy.local
+      EMAIL_FROM_NAME: Cal.diy
+      EMAIL_SERVER_HOST: localhost
+      EMAIL_SERVER_PORT: "1025"
+      # --- Misc ---
+      CALCOM_TELEMETRY_DISABLED: "1"
+      NODE_ENV: development
+      NODE_OPTIONS: --max-old-space-size=8192
+      # Skip husky inside the container - the hook installer fails when no git
+      # working dir / no shell is available, and we don't need it for `dev`.
+      HUSKY: "0"
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        echo "[alloy] Enabling corepack + yarn 4.12.0"
+        corepack enable
+        corepack prepare yarn@4.12.0 --activate
+
+        echo "[alloy] Installing dependencies (first run can take 10+ minutes)"
+        if [ ! -f node_modules/.alloy-install-complete ]; then
+          yarn install --inline-builds
+          touch node_modules/.alloy-install-complete
+        else
+          echo "[alloy] node_modules already populated, skipping install"
+        fi
+
+        echo "[alloy] Generating Prisma client"
+        yarn workspace @calcom/prisma prisma generate
+
+        echo "[alloy] Applying database migrations"
+        yarn workspace @calcom/prisma prisma migrate deploy
+
+        echo "[alloy] Seeding the database (idempotent)"
+        yarn workspace @calcom/prisma db-seed || echo "[alloy] db-seed failed - continuing with empty DB"
+
+        echo "[alloy] Starting Next.js dev server on http://localhost:3000"
+        exec yarn workspace @calcom/web dev
