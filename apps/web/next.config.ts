@@ -387,24 +387,6 @@ const nextConfig = (phase: string): NextConfig => {
 
       return [
         {
-          source: "/auth/:path*",
-          headers: [
-            {
-              key: "X-Frame-Options",
-              value: "DENY",
-            },
-          ],
-        },
-        {
-          source: "/signup",
-          headers: [
-            {
-              key: "X-Frame-Options",
-              value: "DENY",
-            },
-          ],
-        },
-        {
           source: "/:path*",
           headers: [
             {
