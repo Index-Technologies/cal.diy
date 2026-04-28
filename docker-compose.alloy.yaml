@@ -1,0 +1,55 @@
+# Compose file used by the Alloy dev-env sandbox to boot Cal.diy.
+#
+# Both services use `network_mode: host` so the Next.js app at :3000 and
+# Postgres at :5450 are reachable on the sandbox host without publishing
+# ports. The DATABASE_URL the rest of the codebase expects
+# (`postgresql://postgres:@localhost:5450/calendso`) works unchanged because
+# of host networking.
+services:
+  postgres:
+    image: postgres:18
+    network_mode: host
+    environment:
+      POSTGRES_DB: calendso
+      POSTGRES_USER: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+      PGPORT: "5450"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5450 -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  web:
+    image: node:22-bookworm
+    network_mode: host
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - cal-node-modules:/workspace/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: "postgresql://postgres:@localhost:5450/calendso"
+      DATABASE_DIRECT_URL: "postgresql://postgres:@localhost:5450/calendso"
+      # App URLs (host networking means localhost works on both sides)
+      NEXT_PUBLIC_WEBAPP_URL: "http://localhost:3000"
+      NEXT_PUBLIC_WEBSITE_URL: "http://localhost:3000"
+      NEXTAUTH_URL: "http://localhost:3000"
+      ALLOWED_HOSTNAMES: '"localhost:3000"'
+      # Disable telemetry by default for the sandbox.
+      CALCOM_TELEMETRY_DISABLED: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Give Next.js room to compile the monorepo.
+      NODE_OPTIONS: "--max-old-space-size=8192"
+    command: ["bash", "-lc", "scripts/alloy-start.sh"]
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  cal-node-modules:
