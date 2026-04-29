@@ -33,9 +33,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    env_file:
-      - .env
     environment:
+      NEXTAUTH_SECRET: local-dev-nextauth-secret-32-chars
+      CALENDSO_ENCRYPTION_KEY: local-dev-encryption-key-24chars
       NODE_ENV: development
       NODE_OPTIONS: --max-old-space-size=8192
       # Force the dev server onto port 3000 for the Alloy preview proxy.
