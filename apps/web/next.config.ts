@@ -385,7 +385,36 @@ const nextConfig = (phase: string): NextConfig => {
         value: "*",
       };
 
+      // Alloy sandbox sessions render the app inside an iframe, so we skip
+      // X-Frame-Options: DENY for those previews. Production behavior is
+      // unchanged.
+      const isAlloy = process.env.IS_ALLOY === "true";
+
+      const xFrameOptionsRoutes = isAlloy
+        ? []
+        : [
+            {
+              source: "/auth/:path*",
+              headers: [
+                {
+                  key: "X-Frame-Options",
+                  value: "DENY",
+                },
+              ],
+            },
+            {
+              source: "/signup",
+              headers: [
+                {
+                  key: "X-Frame-Options",
+                  value: "DENY",
+                },
+              ],
+            },
+          ];
+
       return [
+        ...xFrameOptionsRoutes,
         {
           source: "/:path*",
           headers: [
