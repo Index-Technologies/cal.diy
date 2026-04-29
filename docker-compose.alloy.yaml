@@ -1,0 +1,75 @@
+# Alloy sandbox compose file for cal.diy.
+#
+# Architecture:
+# - Postgres on the host network at port 5450 (matches the project's default
+#   DATABASE_URL).
+# - The Next.js web app runs in dev mode on port 3000, also on host networking
+#   so the Alloy proxy at http://localhost:8080 can reach it directly.
+# - node_modules is kept in a named volume to avoid clobbering the host bind
+#   mount and to make iterative restarts fast.
+
+services:
+  postgres:
+    image: postgres:18
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: calendso
+      POSTGRES_USER: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+      PGPORT: "5450"
+    volumes:
+      - calcom_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -p 5450"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  web:
+    image: node:20-bookworm
+    network_mode: host
+    working_dir: /workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      NODE_OPTIONS: --max-old-space-size=8192
+      # Force the dev server onto port 3000 for the Alloy preview proxy.
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      # Skip husky in containers - we don't need git hooks here.
+      HUSKY: "0"
+      # Disable Next telemetry inside the container.
+      NEXT_TELEMETRY_DISABLED: "1"
+    volumes:
+      - .:/workspace
+      - calcom_root_node_modules:/workspace/node_modules
+      - calcom_yarn_cache:/root/.yarn/berry/cache
+    command:
+      - bash
+      - -lc
+      - |
+        set -e
+        corepack enable
+        corepack prepare yarn@4.12.0 --activate
+        if [ ! -d node_modules/.bin ] || [ ! -f node_modules/.yarn-state.yml ]; then
+          echo ">>> Running yarn install (first run can take several minutes)"
+          yarn install --inline-builds
+        else
+          echo ">>> node_modules already populated, skipping yarn install"
+        fi
+        echo ">>> Generating Prisma client"
+        yarn workspace @calcom/prisma prisma generate
+        echo ">>> Applying database migrations"
+        yarn workspace @calcom/prisma prisma migrate deploy
+        echo ">>> Starting Cal.diy web app on http://localhost:3000"
+        exec yarn workspace @calcom/web dev
+
+volumes:
+  calcom_pgdata:
+  calcom_root_node_modules:
+  calcom_yarn_cache:
