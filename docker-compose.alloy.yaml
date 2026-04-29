@@ -1,0 +1,105 @@
+# Alloy dev-environment Compose for cal.diy.
+#
+# Boots the minimum services needed for the Next.js web app (apps/web) to
+# render against a local Postgres. The Alloy preview reaches the running app
+# at http://localhost:8080 via Alloy's own proxy; the Next.js dev server
+# itself binds to port 3000 (frontendPort in .alloy/environment.json).
+#
+# Both services use `network_mode: host` because the sandbox dockerd runs
+# with `--iptables=false --bridge=none`, which means user-defined bridge
+# networks cannot route traffic. Host networking lets the web container
+# reach Postgres on localhost:5450 and lets Alloy's proxy reach Next.js
+# on localhost:3000.
+
+services:
+  postgres:
+    image: postgres:18
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: calendso
+      POSTGRES_USER: unicorn_user
+      POSTGRES_PASSWORD: magical_password
+      # Postgres listens on the non-default 5450 port the Cal.diy .env.example assumes,
+      # so we override the default port through the entrypoint.
+      PGPORT: "5450"
+    volumes:
+      # Postgres 18 expects the mount at /var/lib/postgresql so it can manage
+      # the major-version subdirectory itself. See the cal.diy docker-compose.yml
+      # and https://github.com/docker-library/postgres/issues/37.
+      - cal-diy-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U unicorn_user -d calendso -p 5450"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  web:
+    image: node:22-bookworm
+    working_dir: /workspace
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Make the dev server reachable from the Alloy proxy.
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+      # Database — point at the Postgres container above (host networking).
+      DATABASE_URL: "postgresql://unicorn_user:magical_password@localhost:5450/calendso"
+      DATABASE_DIRECT_URL: "postgresql://unicorn_user:magical_password@localhost:5450/calendso"
+      # User-facing URL goes through the Alloy proxy on :8080.
+      NEXT_PUBLIC_WEBAPP_URL: "http://localhost:8080"
+      NEXT_PUBLIC_WEBSITE_URL: "http://localhost:8080"
+      NEXT_PUBLIC_EMBED_LIB_URL: "http://localhost:8080/embed/embed.js"
+      NEXTAUTH_URL: "http://localhost:8080"
+      NEXTAUTH_SECRET: "alloy-dev-nextauth-secret-do-not-use-in-prod"
+      CALENDSO_ENCRYPTION_KEY: "alloy-dev-encryption-key-32bytes"
+      ALLOWED_HOSTNAMES: '"localhost:8080","localhost:3000","localhost"'
+      RESERVED_SUBDOMAINS: '"app","auth","docs","design","console","go","status","api","saml","www","matrix","developer","cal","my","team","support","security","blog","learn","admin"'
+      CALCOM_TELEMETRY_DISABLED: "1"
+      CRON_API_KEY: "alloy-dev-cron-api-key"
+      CRON_ENABLE_APP_SYNC: "false"
+      EMAIL_FROM: "notifications@localhost"
+      EMAIL_FROM_NAME: "Cal.diy (Alloy dev)"
+      EMAIL_SERVER_HOST: "localhost"
+      EMAIL_SERVER_PORT: "1025"
+      NEXT_PUBLIC_APP_NAME: "Cal.diy"
+      NEXT_PUBLIC_SUPPORT_MAIL_ADDRESS: "help@cal.diy"
+      NEXT_PUBLIC_COMPANY_NAME: "Cal.com, Inc."
+      GOOGLE_LOGIN_ENABLED: "false"
+      OUTLOOK_LOGIN_ENABLED: "false"
+      ORGANIZATIONS_ENABLED: ""
+      API_KEY_PREFIX: "cal_"
+      NODE_OPTIONS: "--max-old-space-size=8192"
+      # Yarn Berry uses Corepack; allow it to download the pinned version.
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+      # Tell scripts/seed-app-store.ts that we are inside Alloy.
+      IS_ALLOY: "true"
+    volumes:
+      - .:/workspace
+      # Keep node_modules and yarn cache on a named volume so subsequent
+      # restarts don't re-download every package.
+      - cal-diy-node-modules:/workspace/node_modules
+      - cal-diy-yarn-cache:/root/.yarn/berry/cache
+    command: >
+      bash -lc "
+        set -e;
+        echo '[alloy] enabling corepack';
+        corepack enable;
+        corepack prepare yarn@4.12.0 --activate;
+        echo '[alloy] installing dependencies (this is slow on first boot)';
+        yarn install --inline-builds;
+        echo '[alloy] running prisma migrations';
+        yarn workspace @calcom/prisma prisma migrate deploy;
+        echo '[alloy] seeding database (best-effort, non-fatal)';
+        yarn workspace @calcom/prisma db-seed || echo '[alloy] seed failed, continuing';
+        echo '[alloy] starting Next.js dev server on 0.0.0.0:3000';
+        exec yarn workspace @calcom/web dev -H 0.0.0.0 -p 3000
+      "
+
+volumes:
+  cal-diy-pgdata:
+  cal-diy-node-modules:
+  cal-diy-yarn-cache:
