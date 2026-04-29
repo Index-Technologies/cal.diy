@@ -386,24 +386,10 @@ const nextConfig = (phase: string): NextConfig => {
       };
 
       return [
-        {
-          source: "/auth/:path*",
-          headers: [
-            {
-              key: "X-Frame-Options",
-              value: "DENY",
-            },
-          ],
-        },
-        {
-          source: "/signup",
-          headers: [
-            {
-              key: "X-Frame-Options",
-              value: "DENY",
-            },
-          ],
-        },
+        // X-Frame-Options: DENY is intentionally not emitted for /auth/* and
+        // /signup so the app can be rendered inside the Alloy preview iframe
+        // during local development. The CSP in apps/web/lib/csp.ts does not
+        // set frame-ancestors, so removing these is sufficient.
         {
           source: "/:path*",
           headers: [
